@@ -19,15 +19,34 @@
     └── weaver-core/       # 原版 weaver-core（基线对照）
 ```
 
-## 快速开始
+## 环境搭建
 
 ```bash
-# 安装 KAN 版 weaver-core
-cd kan_weaver-core && pip install -e .
+conda create -n zhizheng1 python=3.10 -y
+conda activate zhizheng1
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+git clone git@github.com:zhizhengzhao/Graduation_Thesis.git
+cd Graduation_Thesis/kan_weaver-core
+pip install -e .
+pip install requests
+```
 
-# 在 particle_transformer 目录下训练
-cd ../particle_transformer
+## 训练
+
+```bash
+cd particle_transformer
+
+# Baseline: 原版 ParT
+./train_JetClass.sh ParT full
+
+# v1: KAN 分类头
 ./train_JetClass.sh ParT full --network-config networks/example_ParticleTransformer_kan_head.py
+
+# v2: KAN 分类头 + CLS FFN
+./train_JetClass.sh ParT full --network-config networks/example_ParticleTransformer_kan_hybrid.py
+
+# 多卡训练（例如用 4 张 GPU）
+DDP_NGPUS=4 ./train_JetClass.sh ParT full --network-config networks/example_ParticleTransformer_kan_head.py
 ```
 
 ## 实验方案
