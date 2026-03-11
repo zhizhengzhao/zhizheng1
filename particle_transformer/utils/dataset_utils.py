@@ -15,11 +15,33 @@ from tqdm import tqdm
 
 def _download(url, fname, chunk_size=1024):
     '''https://gist.github.com/yanqd0/c13ed29e29432e3cf3e7c38467f42f51'''
-    resp = requests.get(url, stream=True)
-    total = int(resp.headers.get('content-length', 0))
-    with open(fname, 'wb') as file, tqdm(
+    headers = {}
+    initial_size = 0
+    mode = 'wb'
+    if os.path.exists(fname):
+        initial_size = os.path.getsize(fname)
+        headers['Range'] = f'bytes={initial_size}-'
+        mode = 'ab'
+
+    resp = requests.get(url, stream=True, headers=headers)
+
+    if resp.status_code == 416:
+        print(f'File {fname} is already fully downloaded.')
+        return
+    if resp.status_code == 200 and initial_size > 0:
+        initial_size = 0
+        mode = 'wb'
+
+    total_remote = int(resp.headers.get('content-length', 0))
+    total = total_remote + initial_size
+
+    if initial_size > 0:
+        print(f'Resuming download from {initial_size / 1024 / 1024:.1f} MiB')
+
+    with open(fname, mode) as file, tqdm(
         desc=fname,
         total=total,
+        initial=initial_size,
         unit='iB',
         unit_scale=True,
         unit_divisor=1024,
@@ -178,7 +200,6 @@ def get_file(origin=None,
 
     download = False
     if os.path.exists(fpath) and not force_download:
-        # File found; verify integrity if a hash was provided.
         print(f'A local file already found at {fpath}, checking hash...')
         if file_hash is not None:
             if validate_file(fpath, file_hash, algorithm=hash_algorithm):
@@ -188,12 +209,14 @@ def get_file(origin=None,
                     'A local file was found, but it seems to be '
                     f'incomplete or outdated because the {hash_algorithm} '
                     f'file hash does not match the original value of {file_hash} '
-                    'so we will re-download the data.')
+                    'so we will try to resume the download.')
                 download = True
     else:
         download = True
 
     if download:
+        if force_download and os.path.exists(fpath):
+            os.remove(fpath)
         print(f'Downloading data from {origin} to {fpath}')
 
         error_msg = 'URL fetch failure on {}: {}'
@@ -202,7 +225,10 @@ def get_file(origin=None,
                 _download(origin, fpath)
             except requests.exceptions.RequestException as e:
                 raise Exception(error_msg.format(origin, e.msg))
-        except (Exception, KeyboardInterrupt) as e:
+        except KeyboardInterrupt:
+            print(f'\nDownload interrupted. Partial file kept at {fpath} for resume.')
+            raise
+        except Exception as e:
             if os.path.exists(fpath):
                 os.remove(fpath)
             raise
