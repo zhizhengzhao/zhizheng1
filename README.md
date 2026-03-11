@@ -37,16 +37,13 @@ pip install requests
 cd particle_transformer
 
 # Baseline: 原版 ParT
-./train_JetClass.sh ParT full
+CUDA_VISIBLE_DEVICES=4,5,6,7 DDP_NGPUS=4 ./train_JetClass.sh ParT full
 
 # v1: KAN 分类头
-./train_JetClass.sh ParT full --network-config networks/example_ParticleTransformer_kan_head.py
+CUDA_VISIBLE_DEVICES=4,5,6,7 DDP_NGPUS=4 ./train_JetClass.sh ParT full --network-config networks/example_ParticleTransformer_kan_head.py
 
 # v2: KAN 分类头 + CLS FFN
-./train_JetClass.sh ParT full --network-config networks/example_ParticleTransformer_kan_hybrid.py
-
-# 多卡训练（例如用 4 张 GPU）
-DDP_NGPUS=4 ./train_JetClass.sh ParT full --network-config networks/example_ParticleTransformer_kan_head.py
+CUDA_VISIBLE_DEVICES=4,5,6,7 DDP_NGPUS=4 ./train_JetClass.sh ParT full --network-config networks/example_ParticleTransformer_kan_hybrid.py
 ```
 
 ## 实验方案
