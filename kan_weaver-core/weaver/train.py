@@ -854,6 +854,12 @@ def _main(args):
             _logger.info('Epoch #%d: Current validation metric: %.5f (best: %.5f)' %
                          (epoch, valid_metric, best_valid_metric), color='bold')
 
+        # save KAN monitor statistics if available
+        _mon = getattr(orig_model, 'kan_monitor', None)
+        if _mon is not None and args.model_prefix and (args.backend is None or local_rank == 0):
+            _mon.save(os.path.join(os.path.dirname(args.model_prefix), 'kan_monitor_stats.json'))
+            _mon.remove_hooks()
+
     if args.data_test:
         if args.backend is not None and local_rank != 0:
             return
@@ -934,7 +940,9 @@ def main():
     if args.steps_per_epoch_val is not None and args.steps_per_epoch_val < 0:
         args.steps_per_epoch_val = None
 
-    if '{auto}' in args.model_prefix or '{auto}' in args.log:
+    _has_auto = '{auto}' in args.model_prefix or '{auto}' in args.log or (
+        args.tensorboard and '{auto}' in args.tensorboard)
+    if _has_auto:
         import hashlib
         import time
         model_name = time.strftime('%Y%m%d-%H%M%S') + "_" + os.path.basename(args.network_config).replace('.py', '')
@@ -945,6 +953,8 @@ def main():
         args._auto_model_name = model_name
         args.model_prefix = args.model_prefix.replace('{auto}', model_name)
         args.log = args.log.replace('{auto}', model_name)
+        if args.tensorboard:
+            args.tensorboard = args.tensorboard.replace('{auto}', model_name)
         print('Using auto-generated model prefix %s' % args.model_prefix)
 
     if args.predict_gpus is None:

@@ -1,6 +1,9 @@
-###############
-#     Change           #
-###############
+"""KAN-inspired layers for Particle Transformer integration.
+
+Provides:
+  - KANBasisLinear: univariate spline + residual linear branch.
+  - KANClassificationHead: drop-in KAN replacement for the classification head.
+"""
 
 import math
 import torch
@@ -108,46 +111,110 @@ class KANBasisLinear(nn.Module):
         return out.reshape(*orig_shape, self.out_features)
 
 
-class KANBasisMLP(nn.Module):
-    """Stacked KANBasisLinear layers for MLP-style heads."""
+class KANClassificationHead(nn.Module):
+    """KAN-based classification head, drop-in replacement for the MLP head."""
 
     def __init__(
             self,
-            layer_dims,
-            dropout=0.0,
+            input_dim,
+            num_classes,
+            fc_params,
             num_grids=8,
             grid_range=(-2.0, 2.0),
-            base_activation='silu',
-            final_activation=None):
+            base_activation='silu'):
         super().__init__()
-        if len(layer_dims) < 2:
-            raise ValueError('layer_dims must contain at least input and output dims.')
-
-        blocks = []
-        for i in range(len(layer_dims) - 1):
-            in_dim = int(layer_dims[i])
-            out_dim = int(layer_dims[i + 1])
-            blocks.append(
-                KANBasisLinear(
-                    in_features=in_dim,
-                    out_features=out_dim,
-                    num_grids=num_grids,
-                    grid_range=grid_range,
-                    base_activation=base_activation,
-                    use_base=True,
-                    bias=True))
-            is_last = (i == len(layer_dims) - 2)
-            if not is_last:
-                blocks.append(nn.ReLU())
-                if dropout > 0:
-                    blocks.append(nn.Dropout(dropout))
-            elif final_activation is not None:
-                blocks.append(final_activation)
-        self.net = nn.Sequential(*blocks)
+        hidden_dims = [out_dim for out_dim, _ in fc_params]
+        layer_dims = [input_dim] + hidden_dims + [num_classes]
+        self.kan_layers = nn.ModuleList([
+            KANBasisLinear(
+                in_features=layer_dims[i],
+                out_features=layer_dims[i + 1],
+                num_grids=num_grids,
+                grid_range=grid_range,
+                base_activation=base_activation)
+            for i in range(len(layer_dims) - 1)
+        ])
+        self.hidden_dropout = nn.ModuleList([
+            nn.Dropout(drop_rate) for _, drop_rate in fc_params
+        ])
 
     def forward(self, x):
-        return self.net(x)
+        for layer, drop in zip(self.kan_layers[:-1], self.hidden_dropout):
+            x = drop(layer(x))
+        return self.kan_layers[-1](x)
 
-###############
-#     Change End    #
-###############
+
+class KANMonitor:
+    """Monitors input distributions of all KANBasisLinear layers via forward hooks.
+
+    Periodically samples statistics (mean, std, min, max, clamp ratio) and
+    writes them to a JSON file at the end of training.
+    """
+
+    def __init__(self, model, log_interval=500):
+        import logging
+        self._logger = logging.getLogger('weaver')
+        self.log_interval = log_interval
+        self._batch_count = 0
+        self._records = []
+        self._hooks = []
+        self._layers = {}
+        self._pending = {}
+
+        for name, module in model.named_modules():
+            if isinstance(module, KANBasisLinear):
+                self._layers[name] = module
+                hook = module.register_forward_hook(self._make_hook(name, module))
+                self._hooks.append(hook)
+        self._logger.info('KANMonitor: tracking %d KANBasisLinear layers, log_interval=%d',
+                          len(self._layers), log_interval)
+
+    def _make_hook(self, layer_name, layer):
+        is_first_layer = (layer_name == next(iter(self._layers)))
+
+        def hook_fn(module, input, output):
+            if is_first_layer:
+                self._batch_count += 1
+            if self._batch_count % self.log_interval != 0:
+                return
+            if layer_name in self._pending:
+                return
+            x = input[0].detach()
+            x_flat = x.reshape(-1, x.size(-1)).float()
+            total = x_flat.numel()
+            clamped = ((x_flat < layer.grid_min) | (x_flat > layer.grid_max)).sum().item()
+            stats = {
+                'batch': self._batch_count,
+                'layer': layer_name,
+                'grid_range': [layer.grid_min, layer.grid_max],
+                'mean': x_flat.mean().item(),
+                'std': x_flat.std().item(),
+                'min': x_flat.min().item(),
+                'max': x_flat.max().item(),
+                'clamp_ratio': clamped / total if total > 0 else 0.0,
+            }
+            self._records.append(stats)
+            self._pending[layer_name] = True
+            if len(self._pending) == len(self._layers):
+                for name in self._pending:
+                    r = next(r for r in reversed(self._records) if r['layer'] == name)
+                    self._logger.info(
+                        'KANMonitor [batch %d] %s: mean=%.3f std=%.3f min=%.3f max=%.3f clamp=%.2f%%',
+                        self._batch_count, name, r['mean'], r['std'],
+                        r['min'], r['max'], r['clamp_ratio'] * 100)
+                self._pending.clear()
+        return hook_fn
+
+    def save(self, path):
+        """Write all collected records to a JSON file."""
+        import json
+        import os
+        os.makedirs(os.path.dirname(path) if os.path.dirname(path) else '.', exist_ok=True)
+        with open(path, 'w') as f:
+            json.dump({'log_interval': self.log_interval, 'samples': self._records}, f, indent=2)
+        self._logger.info('KANMonitor: saved %d records to %s', len(self._records), path)
+
+    def remove_hooks(self):
+        for h in self._hooks:
+            h.remove()
+        self._hooks.clear()

@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import awkward as ak
 import tqdm
@@ -485,8 +486,13 @@ class TensorboardHelper(object):
     def __init__(self, tb_comment, tb_custom_fn):
         self.tb_comment = tb_comment
         from torch.utils.tensorboard import SummaryWriter
-        self.writer = SummaryWriter(comment=self.tb_comment)
-        _logger.info('Create Tensorboard summary writer with comment %s' % self.tb_comment)
+        if '/' in tb_comment or os.sep in tb_comment:
+            os.makedirs(tb_comment, exist_ok=True)
+            self.writer = SummaryWriter(log_dir=tb_comment)
+            _logger.info('Create Tensorboard summary writer at %s' % tb_comment)
+        else:
+            self.writer = SummaryWriter(comment=self.tb_comment)
+            _logger.info('Create Tensorboard summary writer with comment %s' % self.tb_comment)
 
         # initiate the batch state
         self.batch_train_count = 0

@@ -11,13 +11,8 @@ import torch.nn as nn
 from functools import partial
 
 from weaver.utils.logger import _logger
-###############
-#     Change           #
-###############
-from weaver.nn.model.kan_basis_layers import KANBasisLinear
-###############
-#     Change End    #
-###############
+# ─── KAN ──────────────────────────────────────────────────────
+from weaver.nn.model.kan_basis_layers import KANClassificationHead
 
 
 @torch.jit.script
@@ -464,45 +459,6 @@ class Block(nn.Module):
         return x
 
 
-###############
-#     Change           #
-###############
-class KANClassificationHead(nn.Module):
-
-    def __init__(
-            self,
-            input_dim,
-            num_classes,
-            fc_params,
-            num_grids=8,
-            grid_range=(-2.0, 2.0),
-            base_activation='silu'):
-        super().__init__()
-        hidden_dims = [out_dim for out_dim, _ in fc_params]
-        layer_dims = [input_dim] + hidden_dims + [num_classes]
-        self.kan_layers = nn.ModuleList([
-            KANBasisLinear(
-                in_features=layer_dims[i],
-                out_features=layer_dims[i + 1],
-                num_grids=num_grids,
-                grid_range=grid_range,
-                base_activation=base_activation)
-            for i in range(len(layer_dims) - 1)
-        ])
-        self.hidden_dropout = nn.ModuleList([
-            nn.Dropout(drop_rate) for _, drop_rate in fc_params
-        ])
-        self.hidden_act = nn.ReLU()
-
-    def forward(self, x):
-        for layer, drop in zip(self.kan_layers[:-1], self.hidden_dropout):
-            x = drop(self.hidden_act(layer(x)))
-        return self.kan_layers[-1](x)
-###############
-#     Change End    #
-###############
-
-
 class ParticleTransformer(nn.Module):
 
     def __init__(self,
@@ -522,16 +478,12 @@ class ParticleTransformer(nn.Module):
                  cls_block_params={'dropout': 0, 'attn_dropout': 0, 'activation_dropout': 0},
                  fc_params=[],
                  activation='gelu',
-                 ###############
-                 #     Change           #
-                 ###############
+                 # ─── KAN Start ───────────────────────────────────────────
                  use_kan_head=False,
                  kan_head_num_grids=8,
                  kan_head_grid_range=(-2.0, 2.0),
                  kan_head_base_activation='silu',
-                 ###############
-                 #     Change End    #
-                 ###############
+                 # ─── KAN End ─────────────────────────────────────────────
                  # misc
                  trim=True,
                  for_inference=False,
@@ -570,9 +522,7 @@ class ParticleTransformer(nn.Module):
         self.norm = nn.LayerNorm(embed_dim)
 
         if fc_params is not None:
-            ###############
-            #     Change           #
-            ###############
+            # ─── KAN Start ───────────────────────────────────────────
             if use_kan_head:
                 _logger.info(
                     'Using KAN head: num_grids=%s, grid_range=%s, base_activation=%s',
@@ -585,6 +535,7 @@ class ParticleTransformer(nn.Module):
                     grid_range=kan_head_grid_range,
                     base_activation=kan_head_base_activation)
             else:
+            # ─── KAN End ─────────────────────────────────────────────
                 fcs = []
                 in_dim = embed_dim
                 for out_dim, drop_rate in fc_params:
@@ -592,9 +543,6 @@ class ParticleTransformer(nn.Module):
                     in_dim = out_dim
                 fcs.append(nn.Linear(in_dim, num_classes))
                 self.fc = nn.Sequential(*fcs)
-            ###############
-            #     Change End    #
-            ###############
         else:
             self.fc = None
 

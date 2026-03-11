@@ -11,13 +11,8 @@ import torch.nn as nn
 from functools import partial
 
 from weaver.utils.logger import _logger
-###############
-#     Change           #
-###############
-from weaver.nn.model.kan_basis_layers import KANBasisLinear
-###############
-#     Change End    #
-###############
+# ─── KAN ──────────────────────────────────────────────────────
+from weaver.nn.model.kan_basis_layers import KANBasisLinear, KANClassificationHead
 
 
 @torch.jit.script
@@ -384,16 +379,12 @@ class Block(nn.Module):
                  dropout=0.1, attn_dropout=0.1, activation_dropout=0.1,
                  add_bias_kv=False, activation='gelu',
                  scale_fc=True, scale_attn=True, scale_heads=True, scale_resids=True,
-                 ###############
-                 #     Change           #
-                 ###############
+                 # ─── KAN Start ───────────────────────────────────────────
                  use_kan_ffn=False,
                  kan_ffn_num_grids=8,
                  kan_ffn_grid_range=(-2.0, 2.0),
                  kan_ffn_base_activation='silu'):
-        ###############
-        #     Change End    #
-        ###############
+                 # ─── KAN End ─────────────────────────────────────────────
         super().__init__()
 
         self.embed_dim = embed_dim
@@ -411,18 +402,12 @@ class Block(nn.Module):
         self.post_attn_norm = nn.LayerNorm(embed_dim) if scale_attn else None
         self.dropout = nn.Dropout(dropout)
 
-        ###############
-        #     Change           #
-        ###############
+        # ─── KAN Start ───────────────────────────────────────────
         self.use_kan_ffn = use_kan_ffn
-        ###############
-        #     Change End    #
-        ###############
+        # ─── KAN End ─────────────────────────────────────────────
 
         self.pre_fc_norm = nn.LayerNorm(embed_dim)
-        ###############
-        #     Change           #
-        ###############
+        # ─── KAN Start ───────────────────────────────────────────
         if self.use_kan_ffn:
             self.fc1 = KANBasisLinear(
                 in_features=embed_dim,
@@ -431,16 +416,12 @@ class Block(nn.Module):
                 grid_range=kan_ffn_grid_range,
                 base_activation=kan_ffn_base_activation)
         else:
+        # ─── KAN End ─────────────────────────────────────────────
             self.fc1 = nn.Linear(embed_dim, self.ffn_dim)
-        ###############
-        #     Change End    #
-        ###############
         self.act = nn.GELU() if activation == 'gelu' else nn.ReLU()
         self.act_dropout = nn.Dropout(activation_dropout)
         self.post_fc_norm = nn.LayerNorm(self.ffn_dim) if scale_fc else None
-        ###############
-        #     Change           #
-        ###############
+        # ─── KAN Start ───────────────────────────────────────────
         if self.use_kan_ffn:
             self.fc2 = KANBasisLinear(
                 in_features=self.ffn_dim,
@@ -449,10 +430,8 @@ class Block(nn.Module):
                 grid_range=kan_ffn_grid_range,
                 base_activation=kan_ffn_base_activation)
         else:
+        # ─── KAN End ─────────────────────────────────────────────
             self.fc2 = nn.Linear(self.ffn_dim, embed_dim)
-        ###############
-        #     Change End    #
-        ###############
 
         self.c_attn = nn.Parameter(torch.ones(num_heads), requires_grad=True) if scale_heads else None
         self.w_resid = nn.Parameter(torch.ones(embed_dim), requires_grad=True) if scale_resids else None
@@ -497,16 +476,12 @@ class Block(nn.Module):
 
         residual = x
         x = self.pre_fc_norm(x)
-        ###############
-        #     Change           #
-        ###############
+        # ─── KAN Start ───────────────────────────────────────────
         if self.use_kan_ffn:
             x = self.fc1(x)
         else:
             x = self.act(self.fc1(x))
-        ###############
-        #     Change End    #
-        ###############
+        # ─── KAN End ─────────────────────────────────────────────
         x = self.act_dropout(x)
         if self.post_fc_norm is not None:
             x = self.post_fc_norm(x)
@@ -517,45 +492,6 @@ class Block(nn.Module):
         x += residual
 
         return x
-
-
-###############
-#     Change           #
-###############
-class KANClassificationHead(nn.Module):
-
-    def __init__(
-            self,
-            input_dim,
-            num_classes,
-            fc_params,
-            num_grids=8,
-            grid_range=(-2.0, 2.0),
-            base_activation='silu'):
-        super().__init__()
-        hidden_dims = [out_dim for out_dim, _ in fc_params]
-        layer_dims = [input_dim] + hidden_dims + [num_classes]
-        self.kan_layers = nn.ModuleList([
-            KANBasisLinear(
-                in_features=layer_dims[i],
-                out_features=layer_dims[i + 1],
-                num_grids=num_grids,
-                grid_range=grid_range,
-                base_activation=base_activation)
-            for i in range(len(layer_dims) - 1)
-        ])
-        self.hidden_dropout = nn.ModuleList([
-            nn.Dropout(drop_rate) for _, drop_rate in fc_params
-        ])
-        self.hidden_act = nn.ReLU()
-
-    def forward(self, x):
-        for layer, drop in zip(self.kan_layers[:-1], self.hidden_dropout):
-            x = drop(self.hidden_act(layer(x)))
-        return self.kan_layers[-1](x)
-###############
-#     Change End    #
-###############
 
 
 class ParticleTransformer(nn.Module):
@@ -577,9 +513,7 @@ class ParticleTransformer(nn.Module):
                  cls_block_params={'dropout': 0, 'attn_dropout': 0, 'activation_dropout': 0},
                  fc_params=[],
                  activation='gelu',
-                 ###############
-                 #     Change           #
-                 ###############
+                 # ─── KAN Start ───────────────────────────────────────────
                  use_kan_head=False,
                  kan_head_num_grids=8,
                  kan_head_grid_range=(-2.0, 2.0),
@@ -589,9 +523,7 @@ class ParticleTransformer(nn.Module):
                  kan_ffn_num_grids=8,
                  kan_ffn_grid_range=(-2.0, 2.0),
                  kan_ffn_base_activation='silu',
-                 ###############
-                 #     Change End    #
-                 ###############
+                 # ─── KAN End ─────────────────────────────────────────────
                  # misc
                  trim=True,
                  for_inference=False,
@@ -612,24 +544,18 @@ class ParticleTransformer(nn.Module):
         cfg_block = copy.deepcopy(default_cfg)
         if block_params is not None:
             cfg_block.update(block_params)
-        ###############
-        #     Change           #
-        ###############
+        # ─── KAN Start ───────────────────────────────────────────
         cfg_block.setdefault('use_kan_ffn', use_kan_main_ffn)
         cfg_block.setdefault('kan_ffn_num_grids', kan_ffn_num_grids)
         cfg_block.setdefault('kan_ffn_grid_range', kan_ffn_grid_range)
         cfg_block.setdefault('kan_ffn_base_activation', kan_ffn_base_activation)
-        ###############
-        #     Change End    #
-        ###############
+        # ─── KAN End ─────────────────────────────────────────────
         _logger.info('cfg_block: %s' % str(cfg_block))
 
         cfg_cls_block = copy.deepcopy(default_cfg)
         if cls_block_params is not None:
             cfg_cls_block.update(cls_block_params)
-        ###############
-        #     Change           #
-        ###############
+        # ─── KAN Start ───────────────────────────────────────────
         cfg_cls_block.setdefault('use_kan_ffn', use_kan_cls_ffn)
         cfg_cls_block.setdefault('kan_ffn_num_grids', kan_ffn_num_grids)
         cfg_cls_block.setdefault('kan_ffn_grid_range', kan_ffn_grid_range)
@@ -641,9 +567,7 @@ class ParticleTransformer(nn.Module):
             kan_ffn_num_grids,
             str(kan_ffn_grid_range),
             kan_ffn_base_activation)
-        ###############
-        #     Change End    #
-        ###############
+        # ─── KAN End ─────────────────────────────────────────────
         _logger.info('cfg_cls_block: %s' % str(cfg_cls_block))
 
         self.pair_extra_dim = pair_extra_dim
@@ -657,9 +581,7 @@ class ParticleTransformer(nn.Module):
         self.norm = nn.LayerNorm(embed_dim)
 
         if fc_params is not None:
-            ###############
-            #     Change           #
-            ###############
+            # ─── KAN Start ───────────────────────────────────────────
             if use_kan_head:
                 _logger.info(
                     'Using KAN head: num_grids=%s, grid_range=%s, base_activation=%s',
@@ -672,6 +594,7 @@ class ParticleTransformer(nn.Module):
                     grid_range=kan_head_grid_range,
                     base_activation=kan_head_base_activation)
             else:
+            # ─── KAN End ─────────────────────────────────────────────
                 fcs = []
                 in_dim = embed_dim
                 for out_dim, drop_rate in fc_params:
@@ -679,9 +602,6 @@ class ParticleTransformer(nn.Module):
                     in_dim = out_dim
                 fcs.append(nn.Linear(in_dim, num_classes))
                 self.fc = nn.Sequential(*fcs)
-            ###############
-            #     Change End    #
-            ###############
         else:
             self.fc = None
 

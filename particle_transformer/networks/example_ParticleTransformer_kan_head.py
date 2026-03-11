@@ -1,11 +1,7 @@
 import torch
-###############
-#     Change           #
-###############
+# ─── KAN ──────────────────────────────────────────────────────
 from weaver.nn.model.ParticleTransformerKANHead import ParticleTransformer
-###############
-#     Change End    #
-###############
+from weaver.nn.model.kan_basis_layers import KANMonitor
 from weaver.utils.logger import _logger
 
 '''
@@ -44,16 +40,12 @@ def get_model(data_config, **kwargs):
         cls_block_params={'dropout': 0, 'attn_dropout': 0, 'activation_dropout': 0},
         fc_params=[],
         activation='gelu',
-        ###############
-        #     Change           #
-        ###############
+        # ─── KAN Start ───────────────────────────────────────────
         use_kan_head=True,
         kan_head_num_grids=8,
         kan_head_grid_range=(-2.0, 2.0),
         kan_head_base_activation='silu',
-        ###############
-        #     Change End    #
-        ###############
+        # ─── KAN End ─────────────────────────────────────────────
         # misc
         trim=True,
         for_inference=False,
@@ -62,6 +54,8 @@ def get_model(data_config, **kwargs):
     _logger.info('Model config: %s' % str(cfg))
 
     model = ParticleTransformerWrapper(**cfg)
+    # ─── KAN ──────────────────────────────────────────────────────
+    model.kan_monitor = KANMonitor(model)
 
     model_info = {
         'input_names': list(data_config.input_names),
