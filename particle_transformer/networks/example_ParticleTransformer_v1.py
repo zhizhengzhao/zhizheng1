@@ -1,6 +1,5 @@
 import torch
-# ─── KAN ──────────────────────────────────────────────────────
-from weaver.nn.model.ParticleTransformerKANHead import ParticleTransformer
+from weaver.nn.model.ParticleTransformerKANHybrid import ParticleTransformer
 from weaver.nn.model.kan_basis_layers import KANMonitor
 from weaver.utils.logger import _logger
 
@@ -40,21 +39,31 @@ def get_model(data_config, **kwargs):
         cls_block_params={'dropout': 0, 'attn_dropout': 0, 'activation_dropout': 0},
         fc_params=[],
         activation='gelu',
-        # ─── KAN Start ───────────────────────────────────────────
+        # KAN experiment switches
         use_kan_head=True,
-        kan_head_num_grids=8,
-        kan_head_grid_range=(-2.0, 2.0),
-        kan_head_base_activation='silu',
-        # ─── KAN End ─────────────────────────────────────────────
+        use_kan_main_ffn=False,
+        use_kan_cls_ffn=False,
+        kan_num_grids=20,
+        kan_grid_range=(-5.0, 5.0),
+        kan_base_activation='silu',
         # misc
         trim=True,
         for_inference=False,
     )
     cfg.update(**kwargs)
+
+    kan_num_grids = cfg.pop('kan_num_grids')
+    kan_grid_range = cfg.pop('kan_grid_range')
+    kan_base_activation = cfg.pop('kan_base_activation')
+    cfg.setdefault('kan_head_num_grids', kan_num_grids)
+    cfg.setdefault('kan_head_grid_range', kan_grid_range)
+    cfg.setdefault('kan_head_base_activation', kan_base_activation)
+    cfg.setdefault('kan_ffn_num_grids', kan_num_grids)
+    cfg.setdefault('kan_ffn_grid_range', kan_grid_range)
+    cfg.setdefault('kan_ffn_base_activation', kan_base_activation)
     _logger.info('Model config: %s' % str(cfg))
 
     model = ParticleTransformerWrapper(**cfg)
-    # ─── KAN ──────────────────────────────────────────────────────
     model.kan_monitor = KANMonitor(model)
 
     model_info = {
