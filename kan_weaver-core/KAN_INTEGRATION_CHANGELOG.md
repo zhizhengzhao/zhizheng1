@@ -95,6 +95,6 @@ If your script already sets `--network-config`, pass the new config path directl
 To ensure new `weaver` modules are used, install this repo in editable mode:
 
 ```bash
-cd /Users/zhaozhizheng/Desktop/article/kan_weaver-core
+cd kan_weaver-core
 pip install -e .
 ```

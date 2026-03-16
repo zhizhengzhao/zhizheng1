@@ -16,6 +16,7 @@
 │       ├── example_ParticleTransformer_v2.py   # v2: 只改 CLS blocks
 │       ├── example_ParticleTransformer_v3.py   # v3: 只改 main blocks
 │       └── example_ParticleTransformer_v4.py   # v4: head + CLS + main 全改
+├── visualize_results.py   # 训练曲线可视化脚本
 └── backups/               # 参考代码（不修改）
     ├── pykan/             # KAN 论文原始实现
     └── weaver-core/       # 原版 weaver-core（基线对照）
@@ -32,6 +33,19 @@ cd Graduation_Thesis/kan_weaver-core
 pip install -e .
 pip install requests
 ```
+
+数据路径在 `particle_transformer/env.sh` 中配置，`train_JetClass.sh` 启动时会自动 `source env.sh`，无需额外设置。
+
+## 数据下载
+
+数据集已在服务器上准备好，如需重新下载：
+
+```bash
+cd particle_transformer
+python get_datasets.py JetClass
+```
+
+> **注**：`test_20M` 数据量约 19 GB，下载较慢。训练时默认关闭测试集评估，可通过 `USE_TEST=1` 开启（见下文）。
 
 ## 训练
 
@@ -56,14 +70,27 @@ CUDA_VISIBLE_DEVICES=4,5,6,7 DDP_NGPUS=4 ./train_JetClass.sh ParT full --network
 
 ### 精度控制
 
-`train_JetClass.sh` 现在通过环境变量 `USE_AMP` 控制是否启用 AMP：
+`train_JetClass.sh` 通过环境变量 `USE_AMP` 控制是否启用混合精度（AMP）。
+默认关闭，使用全精度（对 KAN 层数值稳定性更安全）：
 
 ```bash
-# 默认：USE_AMP=0（全精度）
-CUDA_VISIBLE_DEVICES=4,5,6,7 DDP_NGPUS=4 ./train_JetClass.sh ParT full --network-config networks/example_ParticleTransformer_v2.py
+# 默认：USE_AMP=0（全精度，推荐）
+CUDA_VISIBLE_DEVICES=4,5,6,7 DDP_NGPUS=4 ./train_JetClass.sh ParT full
 
-# 显式开启 AMP
-USE_AMP=1 CUDA_VISIBLE_DEVICES=4,5,6,7 DDP_NGPUS=4 ./train_JetClass.sh ParT full --network-config networks/example_ParticleTransformer_v2.py
+# 显式开启 AMP（加速训练，但 KAN 层在 float16 下可能不稳定）
+USE_AMP=1 CUDA_VISIBLE_DEVICES=4,5,6,7 DDP_NGPUS=4 ./train_JetClass.sh ParT full
+```
+
+### 测试集控制
+
+`test_20M` 数据下载完成后，通过 `USE_TEST=1` 开启测试集评估：
+
+```bash
+# 默认：USE_TEST=0（不跑测试集）
+CUDA_VISIBLE_DEVICES=4,5,6,7 DDP_NGPUS=4 ./train_JetClass.sh ParT full
+
+# 开启测试集评估
+USE_TEST=1 CUDA_VISIBLE_DEVICES=4,5,6,7 DDP_NGPUS=4 ./train_JetClass.sh ParT full
 ```
 
 ### KAN 超参数控制
@@ -76,9 +103,13 @@ kan_grid_range = (-5.0, 5.0)
 kan_base_activation = 'silu'
 ```
 
+## 结果可视化
+
 ```bash
-python get_datasets.py JetClass
+python visualize_results.py
 ```
+
+生成 `validation_accuracy_curves.png` 和 `best_accuracy_comparison.png`。
 
 ## 实验方案
 

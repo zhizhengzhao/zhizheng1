@@ -29,21 +29,23 @@ dataopts="--num-workers 2 --fetch-step 0.01"
 
 # PN, PFN, PCNN, ParT
 model=$1
+# USE_AMP=1 enables mixed precision; default is full precision (safer for KAN layers)
 USE_AMP=${USE_AMP:-0}
+ampopt=""
 if [[ "$model" == "ParT" ]]; then
-    modelopts="networks/example_ParticleTransformer.py"
-    if [[ "$USE_AMP" != "0" ]]; then
-        modelopts="$modelopts --use-amp"
-    fi
+    default_network_config="networks/example_ParticleTransformer.py"
     batchopts="--batch-size 512 --start-lr 1e-3"
+    if [[ "$USE_AMP" != "0" ]]; then
+        ampopt="--use-amp"
+    fi
 elif [[ "$model" == "PN" ]]; then
-    modelopts="networks/example_ParticleNet.py"
+    default_network_config="networks/example_ParticleNet.py"
     batchopts="--batch-size 512 --start-lr 1e-2"
 elif [[ "$model" == "PFN" ]]; then
-    modelopts="networks/example_PFN.py"
+    default_network_config="networks/example_PFN.py"
     batchopts="--batch-size 4096 --start-lr 2e-2"
 elif [[ "$model" == "PCNN" ]]; then
-    modelopts="networks/example_PCNN.py"
+    default_network_config="networks/example_PCNN.py"
     batchopts="--batch-size 4096 --start-lr 2e-2"
 else
     echo "Invalid model $model!"
@@ -62,6 +64,25 @@ fi
 # currently only Pythia
 SAMPLE_TYPE=Pythia
 
+# USE_TEST=1 to enable test set evaluation (requires test_20M data); default is off
+USE_TEST=${USE_TEST:-0}
+test_args=()
+if [[ "$USE_TEST" != "0" ]]; then
+    test_args=(
+        --data-test
+        "HToBB:${DATADIR}/${SAMPLE_TYPE}/test_20M/HToBB_*.root"
+        "HToCC:${DATADIR}/${SAMPLE_TYPE}/test_20M/HToCC_*.root"
+        "HToGG:${DATADIR}/${SAMPLE_TYPE}/test_20M/HToGG_*.root"
+        "HToWW2Q1L:${DATADIR}/${SAMPLE_TYPE}/test_20M/HToWW2Q1L_*.root"
+        "HToWW4Q:${DATADIR}/${SAMPLE_TYPE}/test_20M/HToWW4Q_*.root"
+        "TTBar:${DATADIR}/${SAMPLE_TYPE}/test_20M/TTBar_*.root"
+        "TTBarLep:${DATADIR}/${SAMPLE_TYPE}/test_20M/TTBarLep_*.root"
+        "WToQQ:${DATADIR}/${SAMPLE_TYPE}/test_20M/WToQQ_*.root"
+        "ZToQQ:${DATADIR}/${SAMPLE_TYPE}/test_20M/ZToQQ_*.root"
+        "ZJetsToNuNu:${DATADIR}/${SAMPLE_TYPE}/test_20M/ZJetsToNuNu_*.root"
+    )
+fi
+
 $CMD \
     --data-train \
     "HToBB:${DATADIR}/${SAMPLE_TYPE}/train_100M/HToBB_*.root" \
@@ -75,18 +96,8 @@ $CMD \
     "ZToQQ:${DATADIR}/${SAMPLE_TYPE}/train_100M/ZToQQ_*.root" \
     "ZJetsToNuNu:${DATADIR}/${SAMPLE_TYPE}/train_100M/ZJetsToNuNu_*.root" \
     --data-val "${DATADIR}/${SAMPLE_TYPE}/val_5M/*.root" \
-    --data-test \
-    "HToBB:${DATADIR}/${SAMPLE_TYPE}/test_20M/HToBB_*.root" \
-    "HToCC:${DATADIR}/${SAMPLE_TYPE}/test_20M/HToCC_*.root" \
-    "HToGG:${DATADIR}/${SAMPLE_TYPE}/test_20M/HToGG_*.root" \
-    "HToWW2Q1L:${DATADIR}/${SAMPLE_TYPE}/test_20M/HToWW2Q1L_*.root" \
-    "HToWW4Q:${DATADIR}/${SAMPLE_TYPE}/test_20M/HToWW4Q_*.root" \
-    "TTBar:${DATADIR}/${SAMPLE_TYPE}/test_20M/TTBar_*.root" \
-    "TTBarLep:${DATADIR}/${SAMPLE_TYPE}/test_20M/TTBarLep_*.root" \
-    "WToQQ:${DATADIR}/${SAMPLE_TYPE}/test_20M/WToQQ_*.root" \
-    "ZToQQ:${DATADIR}/${SAMPLE_TYPE}/test_20M/ZToQQ_*.root" \
-    "ZJetsToNuNu:${DATADIR}/${SAMPLE_TYPE}/test_20M/ZJetsToNuNu_*.root" \
-    --data-config data/JetClass/JetClass_${FEATURE_TYPE}.yaml --network-config $modelopts \
+    "${test_args[@]}" \
+    --data-config data/JetClass/JetClass_${FEATURE_TYPE}.yaml --network-config ${default_network_config} ${ampopt} \
     --model-prefix training/JetClass/${SAMPLE_TYPE}/${FEATURE_TYPE}/${model}/{auto}${suffix}/net \
     $dataopts $batchopts \
     --samples-per-epoch ${samples_per_epoch} --samples-per-epoch-val ${samples_per_epoch_val} --num-epochs $epochs --gpus 0 \
