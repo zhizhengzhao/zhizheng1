@@ -16,10 +16,7 @@
 │       ├── example_ParticleTransformer_v2.py   # v2: 只改 CLS blocks
 │       ├── example_ParticleTransformer_v3.py   # v3: 只改 main blocks
 │       └── example_ParticleTransformer_v4.py   # v4: head + CLS + main 全改
-├── visualize_results.py   # 训练曲线可视化脚本
-└── backups/               # 参考代码（不修改）
-    ├── pykan/             # KAN 论文原始实现
-    └── weaver-core/       # 原版 weaver-core（基线对照）
+└── visualize_results.py   # 训练曲线可视化脚本
 ```
 
 ## 环境搭建
