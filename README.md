@@ -24,7 +24,7 @@
 ```bash
 conda create -n zhizheng1 python=3.10 -y
 conda activate zhizheng1
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+pip install torch torchvision torchaudio -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
 git clone git@github.com:zhizhengzhao/Graduation_Thesis.git
 cd Graduation_Thesis/kan_weaver-core
 pip install -e .
