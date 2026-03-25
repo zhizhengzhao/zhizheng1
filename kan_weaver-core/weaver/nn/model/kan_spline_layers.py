@@ -155,6 +155,18 @@ class KANSplineLinear(nn.Module):
 
         return bases
 
+    @staticmethod
+    def _lstsq(A, B):
+        """Batched least-squares via normal equations (A^T A x = A^T B).
+
+        More portable than torch.linalg.lstsq which can fail with certain
+        Intel MKL / LAPACK versions.
+        """
+        AtA = A.transpose(-2, -1) @ A
+        AtB = A.transpose(-2, -1) @ B
+        reg = 1e-6 * torch.eye(AtA.size(-1), device=AtA.device, dtype=AtA.dtype)
+        return torch.linalg.solve(AtA + reg, AtB)
+
     def _curve2coeff(self, x_samples, y_target):
         """Compute spline coefficients that best fit given data points.
 
@@ -170,8 +182,8 @@ class KANSplineLinear(nn.Module):
         A = bases.permute(1, 0, 2)         # (in_features, num_samples, G+k)
         B = y_target.permute(1, 2, 0)      # (in_features, num_samples, out_features)
 
-        solution = torch.linalg.lstsq(A, B).solution  # (in_features, G+k, out_features)
-        return solution.permute(2, 0, 1)               # (out_features, in_features, G+k)
+        solution = self._lstsq(A, B)       # (in_features, G+k, out_features)
+        return solution.permute(2, 0, 1)   # (out_features, in_features, G+k)
 
     def forward(self, x):
         if x.size(-1) != self.in_features:
@@ -258,11 +270,11 @@ class KANSplineLinear(nn.Module):
 
         self.grid.copy_(new_grid)
 
-        # Re-fit coefficients on the new grid via least squares
+        # Re-fit coefficients on the new grid via normal equations
         bases_new = self.b_splines(x_eval)
         A = bases_new.permute(1, 0, 2)    # (in, num_samples, G+k)
         B = y_old.permute(1, 2, 0)        # (in, num_samples, out)
-        coeffs = torch.linalg.lstsq(A, B).solution  # (in, G+k, out)
+        coeffs = self._lstsq(A, B)        # (in, G+k, out)
         self.spline_weight.copy_(coeffs.permute(2, 0, 1))
 
     def regularization_loss(self, l1_weight=1.0, entropy_weight=1.0):
