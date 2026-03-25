@@ -330,17 +330,46 @@ class KANSplineMonitor:
         self._layers = {}
         self._pending = {}
         self._grid_updated = False
+        self._grid_update_pending = False
         self._grid_update_data = {}
 
         for name, module in model.named_modules():
             if isinstance(module, KANSplineLinear):
                 self._layers[name] = module
-                hook = module.register_forward_hook(self._make_hook(name, module))
-                self._hooks.append(hook)
+                pre_hook = module.register_forward_pre_hook(
+                    self._make_pre_hook(name, module))
+                hook = module.register_forward_hook(
+                    self._make_hook(name, module))
+                self._hooks.extend([pre_hook, hook])
         self._logger.info(
             'KANSplineMonitor: tracking %d KANSplineLinear layers, '
             'log_interval=%d, grid_update_step=%d',
             len(self._layers), log_interval, grid_update_step)
+
+    def _make_pre_hook(self, layer_name, layer):
+        """Execute deferred grid update BEFORE the forward pass starts.
+
+        This avoids the inplace-modification error: at this point the
+        computation graph for this batch hasn't been built yet, so
+        copy_() on spline_weight is safe.
+        """
+        def pre_hook_fn(module, input):
+            if not self._grid_update_pending:
+                return
+            if layer_name not in self._grid_update_data:
+                return
+            data = self._grid_update_data.pop(layer_name)
+            module.update_grid(data)
+            self._logger.info(
+                'KANSplineMonitor: grid updated for %s (batch %d), '
+                'new range=[%.3f, %.3f]',
+                layer_name, self._batch_count,
+                module.grid[:, module.spline_order].min().item(),
+                module.grid[:, -module.spline_order - 1].max().item())
+            if not self._grid_update_data:
+                self._grid_update_pending = False
+                self._grid_updated = True
+        return pre_hook_fn
 
     def _make_hook(self, layer_name, layer):
         is_first_layer = (layer_name == next(iter(self._layers)))
@@ -349,14 +378,15 @@ class KANSplineMonitor:
             if is_first_layer:
                 self._batch_count += 1
 
-            # Adaptive grid update: collect data from one batch after warmup
+            # Collect data for deferred grid update
             if (not self._grid_updated
+                    and not self._grid_update_pending
                     and self._batch_count == self._grid_update_step
                     and layer_name not in self._grid_update_data):
-                x = input[0].detach()
+                x = input[0].detach().clone()
                 self._grid_update_data[layer_name] = x.reshape(-1, x.size(-1))
                 if len(self._grid_update_data) == len(self._layers):
-                    self._do_grid_update()
+                    self._grid_update_pending = True
 
             # Periodic logging
             if self._batch_count % self.log_interval != 0:
@@ -393,19 +423,6 @@ class KANSplineMonitor:
                 self._pending.clear()
 
         return hook_fn
-
-    def _do_grid_update(self):
-        for name, layer in self._layers.items():
-            data = self._grid_update_data[name]
-            layer.update_grid(data)
-            self._logger.info(
-                'KANSplineMonitor: grid updated for %s (batch %d), '
-                'new range=[%.3f, %.3f]',
-                name, self._batch_count,
-                layer.grid[:, layer.spline_order].min().item(),
-                layer.grid[:, -layer.spline_order - 1].max().item())
-        self._grid_update_data.clear()
-        self._grid_updated = True
 
     def save(self, path):
         """Write all collected records to a JSON file."""
